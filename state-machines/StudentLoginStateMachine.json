@@ -1,0 +1,108 @@
+{
+    "StartAt": "Check parameters",
+    "States": {
+        "Check parameters": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Not": {
+                        "Variable": "$.matricola",
+                        "IsPresent": true
+                    },
+                    "Next": "Missing matricola"
+                }
+            ],
+            "Default": "Retrieve booked lections"
+        },
+        "Retrieve booked lections": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:retrieve-lections:$LATEST"
+            },
+            "Next": "Choice",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Error while retrieving lections"
+                }
+            ]
+        },
+        "Choice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Not": {
+                        "Variable": "$.lezioni",
+                        "IsPresent": true
+                    },
+                    "Next": "Success"
+                }
+            ],
+            "Default": "Map"
+        },
+        "Map": {
+            "Type": "Map",
+            "End": true,
+            "Iterator": {
+                "StartAt": "Retrieve lectures data",
+                "States": {
+                    "Retrieve lectures data": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "OutputPath": "$.Payload",
+                        "Parameters": {
+                            "Payload.$": "$",
+                            "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:retrieve-lecture-data:$LATEST"
+                        },
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException"
+                                ],
+                                "IntervalSeconds": 2,
+                                "MaxAttempts": 6,
+                                "BackoffRate": 2
+                            }
+                        ],
+                        "End": true,
+                        "Catch": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "Next": "Error while retrieving lectures data"
+                            }
+                        ]
+                    },
+                    "Error while retrieving lectures data": {
+                        "Type": "Fail",
+                        "Error": "Error while retrieving lectures data"
+                    }
+                }
+            },
+            "ItemsPath": "$.lezioni",
+            "Parameters": {
+                "id_lezione.$": "$$.Map.Item.Value"
+            }
+        },
+        "Error while retrieving lections": {
+            "Type": "Fail",
+            "Error": "Error while retrieving lections",
+            "Cause": "An error occurred while retrieving booked lectures"
+        },
+        "Missing matricola": {
+            "Type": "Fail",
+            "Error": "Missing matricola"
+        },
+        "Success": {
+            "Type": "Succeed"
+        }
+    }
+}

@@ -1,0 +1,295 @@
+{
+    "StartAt": "Check Parameters",
+    "States": {
+        "Check Parameters": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Or": [
+                        {
+                            "Not": {
+                                "Variable": "$.id_lezione",
+                                "IsPresent": true
+                            }
+                        }
+                    ],
+                    "Next": "Missing parameters"
+                }
+            ],
+            "Default": "Get Lecture Data"
+        },
+        "Get Lecture Data": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:retrieve-lecture-details:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Parallel",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Error Retrieving Lecture"
+                }
+            ]
+        },
+        "Error Retrieving Lecture": {
+            "Type": "Fail",
+            "Error": "Error getting students",
+            "Cause": "Lecture ID may be wrong"
+        },
+        "Parallel": {
+            "Type": "Parallel",
+            "Branches": [
+                {
+                    "StartAt": "Check any students attending",
+                    "States": {
+                        "Check any students attending": {
+                            "Type": "Choice",
+                            "Choices": [
+                                {
+                                    "Or": [
+                                        {
+                                            "Not": {
+                                                "Variable": "$.studenti",
+                                                "IsPresent": true
+                                            }
+                                        },
+                                        {
+                                            "Variable": "$.studenti",
+                                            "StringEquals": "{}"
+                                        }
+                                    ],
+                                    "Next": "No students attending the lecture"
+                                }
+                            ],
+                            "Default": "Iterate over students & notify them"
+                        },
+                        "Iterate over students & notify them": {
+                            "Type": "Parallel",
+                            "Branches": [
+                                {
+                                    "StartAt": "Iterate over students",
+                                    "States": {
+                                        "Iterate over students": {
+                                            "Type": "Map",
+                                            "Iterator": {
+                                                "StartAt": "Get Matricola",
+                                                "States": {
+                                                    "Get Matricola": {
+                                                        "Type": "Task",
+                                                        "Resource": "arn:aws:states:::lambda:invoke",
+                                                        "OutputPath": "$.Payload",
+                                                        "Parameters": {
+                                                            "Payload.$": "$",
+                                                            "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:get-matricola-from-email:$LATEST"
+                                                        },
+                                                        "Retry": [
+                                                            {
+                                                                "ErrorEquals": [
+                                                                    "Lambda.ServiceException",
+                                                                    "Lambda.AWSLambdaException",
+                                                                    "Lambda.SdkClientException"
+                                                                ],
+                                                                "IntervalSeconds": 2,
+                                                                "MaxAttempts": 6,
+                                                                "BackoffRate": 2
+                                                            }
+                                                        ],
+                                                        "Next": "Unbook lecture for Student",
+                                                        "Catch": [
+                                                            {
+                                                                "ErrorEquals": [
+                                                                    "States.ALL"
+                                                                ],
+                                                                "Next": "Ignore Matricola"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "Unbook lecture for Student": {
+                                                        "Type": "Task",
+                                                        "Resource": "arn:aws:states:::lambda:invoke",
+                                                        "OutputPath": "$.Payload",
+                                                        "Parameters": {
+                                                            "Payload.$": "$",
+                                                            "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:unbook-lecture-from-studenti-db:$LATEST"
+                                                        },
+                                                        "Retry": [
+                                                            {
+                                                                "ErrorEquals": [
+                                                                    "Lambda.ServiceException",
+                                                                    "Lambda.AWSLambdaException",
+                                                                    "Lambda.SdkClientException"
+                                                                ],
+                                                                "IntervalSeconds": 2,
+                                                                "MaxAttempts": 6,
+                                                                "BackoffRate": 2
+                                                            }
+                                                        ],
+                                                        "End": true
+                                                    },
+                                                    "Ignore Matricola": {
+                                                        "Type": "Pass",
+                                                        "End": true
+                                                    }
+                                                }
+                                            },
+                                            "ItemsPath": "$.studenti",
+                                            "MaxConcurrency": 20,
+                                            "Parameters": {
+                                                "email.$": "$$.Map.Item.Value",
+                                                "id_lezione.$": "$.id_lezione"
+                                            },
+                                            "End": true
+                                        }
+                                    }
+                                },
+                                {
+                                    "StartAt": "Add Email purpose",
+                                    "States": {
+                                        "Add Email purpose": {
+                                            "Type": "Pass",
+                                            "Result": "delete_lecture",
+                                            "ResultPath": "$.email_data.purpose",
+                                            "Next": "Send Email to Students"
+                                        },
+                                        "Send Email to Students": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::lambda:invoke",
+                                            "OutputPath": "$.Payload",
+                                            "Parameters": {
+                                                "Payload.$": "$",
+                                                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:send-email-to-students:$LATEST"
+                                            },
+                                            "Retry": [
+                                                {
+                                                    "ErrorEquals": [
+                                                        "Lambda.ServiceException",
+                                                        "Lambda.AWSLambdaException",
+                                                        "Lambda.SdkClientException"
+                                                    ],
+                                                    "IntervalSeconds": 2,
+                                                    "MaxAttempts": 6,
+                                                    "BackoffRate": 2
+                                                }
+                                            ],
+                                            "End": true,
+                                            "Catch": [
+                                                {
+                                                    "ErrorEquals": [
+                                                        "States.ALL"
+                                                    ],
+                                                    "Next": "Error sending the Email"
+                                                }
+                                            ]
+                                        },
+                                        "Error sending the Email": {
+                                            "Type": "Fail",
+                                            "Error": "Error sending the Email"
+                                        }
+                                    }
+                                }
+                            ],
+                            "End": true
+                        },
+                        "No students attending the lecture": {
+                            "Type": "Succeed"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Remove Lecture from Lectures DB",
+                    "States": {
+                        "Remove Lecture from Lectures DB": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "OutputPath": "$.Payload",
+                            "Parameters": {
+                                "Payload.$": "$",
+                                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:remove-lecture-from-lezioni-db:$LATEST"
+                            },
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "Lambda.ServiceException",
+                                        "Lambda.AWSLambdaException",
+                                        "Lambda.SdkClientException"
+                                    ],
+                                    "IntervalSeconds": 2,
+                                    "MaxAttempts": 6,
+                                    "BackoffRate": 2
+                                }
+                            ],
+                            "Next": "Remove Lecture from Courses DB",
+                            "Catch": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.ALL"
+                                    ],
+                                    "Next": "Error deleting lecture from Lezioni"
+                                }
+                            ]
+                        },
+                        "Error deleting lecture from Lezioni": {
+                            "Type": "Fail",
+                            "Error": "Error deleting lecture from Lezioni"
+                        },
+                        "Remove Lecture from Courses DB": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "OutputPath": "$.Payload",
+                            "Parameters": {
+                                "Payload.$": "$",
+                                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:remove-lecture-from-esami-db:$LATEST"
+                            },
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "Lambda.ServiceException",
+                                        "Lambda.AWSLambdaException",
+                                        "Lambda.SdkClientException"
+                                    ],
+                                    "IntervalSeconds": 2,
+                                    "MaxAttempts": 6,
+                                    "BackoffRate": 2
+                                }
+                            ],
+                            "End": true,
+                            "Catch": [
+                                {
+                                    "ErrorEquals": [
+                                        "States.ALL"
+                                    ],
+                                    "Next": "Error deleting lecture from Esami"
+                                }
+                            ]
+                        },
+                        "Error deleting lecture from Esami": {
+                            "Type": "Fail",
+                            "Error": "Error deleting lecture from Esami"
+                        }
+                    }
+                }
+            ],
+            "End": true
+        },
+        "Missing parameters": {
+            "Type": "Fail"
+        }
+    }
+}

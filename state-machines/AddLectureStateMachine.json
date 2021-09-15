@@ -1,0 +1,220 @@
+{
+    "StartAt": "Check Presence of Parameters",
+    "States": {
+        "Check Presence of Parameters": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Or": [
+                        {
+                            "Not": {
+                                "Variable": "$.codice_edificio",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.codice_aula",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.inizio",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.fine",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.id_corso",
+                                "IsPresent": true
+                            }
+                        }
+                    ],
+                    "Next": "Missing parameters"
+                }
+            ],
+            "Default": "Check date and time correctness"
+        },
+        "Check date and time correctness": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.fine",
+                    "NumericLessThanEqualsPath": "$.inizio",
+                    "Next": "Wrong parameters"
+                }
+            ],
+            "Default": "Check course_id correctness"
+        },
+        "Check course_id correctness": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:check-course-id-correctness:$LATEST"
+            },
+            "Next": "Check room correctness",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Course doesn't exists"
+                }
+            ]
+        },
+        "Course doesn't exists": {
+            "Type": "Fail",
+            "Error": "Course_id doesn't exists"
+        },
+        "Missing parameters": {
+            "Type": "Fail",
+            "Error": "Missing parameters"
+        },
+        "Check room correctness": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:retrieve-number-of-seats"
+            },
+            "Next": "Check whether the room is free or not",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Room not existent"
+                }
+            ]
+        },
+        "Check whether the room is free or not": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:check-lecture-date-and-time-correctness:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Add lecture to Lectures DB",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Room already booked"
+                }
+            ]
+        },
+        "Room already booked": {
+            "Type": "Fail",
+            "Error": "Room already booked",
+            "Cause": "Another lecture is already booked in the room you want to book."
+        },
+        "Add lecture to Lectures DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:add-lecture-on-lezioni-db"
+            },
+            "OutputPath": "$.Payload",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Lecture not added"
+                }
+            ],
+            "Next": "Add lecture to Courses DB"
+        },
+        "Add lecture to Courses DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:add-lecture-on-esami-db"
+            },
+            "Next": "Check adding on Courses DB"
+        },
+        "Check adding on Courses DB": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.error",
+                    "IsPresent": true,
+                    "Next": "Remove lecture from Lectures DB"
+                }
+            ],
+            "Default": "Success"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "Error in adding to Courses DB": {
+            "Type": "Fail",
+            "Error": "Error",
+            "Cause": "Error while adding lecture to Studenti DB"
+        },
+        "Lecture not added": {
+            "Type": "Fail",
+            "Error": "Could not add the lecture",
+            "Cause": "An error occurred while adding lecture"
+        },
+        "Room not existent": {
+            "Type": "Fail",
+            "Error": "Room not existent",
+            "Cause": "The building you select doesn't exist or the room you selected is not in that building"
+        },
+        "Remove lecture from Lectures DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:remove-lecture-from-lezioni-db"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Error in adding to Courses DB"
+        },
+        "Wrong parameters": {
+            "Type": "Fail",
+            "Error": "Date and time error",
+            "Cause": "Lecture end can not precede lecture start"
+        }
+    }
+}

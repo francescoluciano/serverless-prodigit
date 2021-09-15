@@ -1,0 +1,134 @@
+{
+    "StartAt": "Check Presence of Parameters",
+    "States": {
+        "Check Presence of Parameters": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Or": [
+                        {
+                            "Not": {
+                                "Variable": "$.id_lezione",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.matricola",
+                                "IsPresent": true
+                            }
+                        },
+                        {
+                            "Not": {
+                                "Variable": "$.studente",
+                                "IsPresent": true
+                            }
+                        }
+                    ],
+                    "Next": "Missing parameters"
+                }
+            ],
+            "Default": "Matricola-Email Check"
+        },
+        "Missing parameters": {
+            "Type": "Fail",
+            "Error": "Missing parameters"
+        },
+        "Matricola-Email Check": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:check-matricola-email-consistency:$LATEST"
+            },
+            "Next": "Book lecture on Lectures DB",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Discording email-matricola"
+                }
+            ]
+        },
+        "Book lecture on Lectures DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:book-lecture-on-lezioni-db:$LATEST"
+            },
+            "OutputPath": "$.Payload",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Error booking the lecture"
+                }
+            ],
+            "Next": "Book lecture on Students DB"
+        },
+        "Book lecture on Students DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:book-lecture-on-studenti-db:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Check Errors",
+            "OutputPath": "$.Payload"
+        },
+        "Check Errors": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.error",
+                    "IsPresent": true,
+                    "Next": "Fail State: Unbook lecture from Lectures DB"
+                }
+            ],
+            "Default": "Successfully booked the lecture"
+        },
+        "Successfully booked the lecture": {
+            "Type": "Succeed"
+        },
+        "Fail State: Unbook lecture from Lectures DB": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:unbook-lecture-from-lezioni-db:$LATEST"
+            },
+            "Comment": "To revert the Database to a consistent state",
+            "Next": "Error booking the lecture on Students DB"
+        },
+        "Error booking the lecture on Students DB": {
+            "Type": "Fail",
+            "Error": "Error booking on student, aborting lecture booking..."
+        },
+        "Error booking the lecture": {
+            "Type": "Fail",
+            "Error": "Could not book the lecture",
+            "Cause": "Lecture room may be full or you are already booked"
+        },
+        "Discording email-matricola": {
+            "Type": "Fail",
+            "Error": "Email and Matricola does not match"
+        }
+    }
+}

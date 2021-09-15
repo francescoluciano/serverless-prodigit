@@ -1,0 +1,93 @@
+{
+    "Comment": "A Hello World example of the Amazon States Language using a Pass state",
+    "StartAt": "Check Parameters",
+    "States": {
+        "Check Parameters": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Not": {
+                        "Variable": "$.id_docente",
+                        "IsPresent": true
+                    },
+                    "Next": "Missing Parameters"
+                }
+            ],
+            "Default": "Retrieve Teacher data"
+        },
+        "Retrieve Teacher data": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:retrieve-teacher-data:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Retrieve Teacher's lecture data",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Error getting Teacher data"
+                }
+            ]
+        },
+        "Error getting Teacher data": {
+            "Type": "Fail",
+            "Error": "Error getting Teacher data",
+            "Cause": "Teacher Id may be wrong"
+        },
+        "Retrieve Teacher's lecture data": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:987476018036:function:get-teacher-lectures:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                }
+            ],
+            "End": true,
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Error getting Lectures data"
+                }
+            ]
+        },
+        "Error getting Lectures data": {
+            "Type": "Fail",
+            "Error": "Error getting Lectures data"
+        },
+        "Missing Parameters": {
+            "Type": "Fail",
+            "Error": "Missing Parameters",
+            "Cause": "Needs teacher id"
+        }
+    }
+}
